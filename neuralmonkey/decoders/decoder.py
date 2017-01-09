@@ -400,11 +400,11 @@ class Decoder(ModelPart):
                 else:
                     x = inp
 
-                # Run the RNN.
+                prev_state = state
                 cell_output, state = cell(x, state)
-
+                states.append(state)
                 # Run the attention mechanism.
-                attns = [a.attention(cell_output) for a in att_objects]
+                attns = [a.attention(cell_output, prev_state, x) for a in att_objects]
 
                 if conditional_gru:
                     x_2 = linear(
