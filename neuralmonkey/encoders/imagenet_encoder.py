@@ -52,12 +52,14 @@ class ImageNet(ModelPart, Attentive):
                  data_id: str,
                  network_type: str,
                  output_layer: str,
+                 attention_state_size: int,
                  attention_type: Type=Attention,
                  fine_tune: bool=False,
                  load_checkpoint: Optional[str]=None,
                  save_checkpoint: Optional[str]=None) -> None:
         ModelPart.__init__(self, name, save_checkpoint, load_checkpoint)
-        Attentive.__init__(self, attention_type)
+        Attentive.__init__(self, attention_type,
+                           attention_state_size=attention_state_size)
 
         self.data_id = data_id
         self._network_type = network_type
