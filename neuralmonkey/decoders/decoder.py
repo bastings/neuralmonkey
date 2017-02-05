@@ -402,7 +402,7 @@ class Decoder(ModelPart):
 
                 prev_state = state
                 cell_output, state = cell(x, state)
-                states.append(state)
+
                 # Run the attention mechanism.
                 if self._rnn_cell == 'GRU':
                     attns = [a.attention(cell_output, prev_state, x)
