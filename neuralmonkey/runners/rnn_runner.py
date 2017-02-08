@@ -17,10 +17,11 @@ import numpy as np
 import tensorflow as tf
 
 from neuralmonkey.logging import log
+from neuralmonkey.model.model_part import ModelPart
 from neuralmonkey.decoders.decoder import Decoder
 from neuralmonkey.runners.base_runner import (BaseRunner, Executable,
                                               ExecutionResult, NextExecute)
-from neuralmonkey.vocabulary import END_TOKEN_INDEX
+from neuralmonkey.vocabulary import Vocabulary, END_TOKEN_INDEX
 
 
 # pylint: disable=invalid-name
@@ -138,7 +139,7 @@ def _score_expanded(beam_size: int,
     async_results = []
     next_beam_hypotheses = []
     next_beam_logprobs = []
-    with multiprocessing.Pool(cpu_threads) as pool:
+    with multiprocessing.Pool(cpu_threads) as pool:  # type: ignore
         for seq_id in range(batch_size):
             next_distributions = [b.next_logprobs[seq_id] for b in expanded]
             hypotheses = [
@@ -161,23 +162,24 @@ def _score_expanded(beam_size: int,
         return next_beam_hypotheses, next_beam_logprobs
 
 
-def _try_append(first, second):
+def _try_append(first: Optional[np.ndarray],
+                second: np.ndarray) -> np.ndarray:
     if first is None:
         return second
     else:
         return np.append(first, second, axis=0)
 
 
-def likelihood_beam_score(decoded, logprobs):
+def likelihood_beam_score(decoded: np.ndarray, logprobs: np.ndarray) -> float:
     """Score the beam by normalized probaility."""
 
     mask = []
     for hypothesis in decoded:
-        before_end = True
+        before_end = True  # type: bool
         hyp_mask = []
         for index in hypothesis:
             hyp_mask.append(float(before_end))
-            before_end &= (index != END_TOKEN_INDEX)
+            before_end &= (index != END_TOKEN_INDEX)  # type: ignore
         mask.append(hyp_mask)
 
     mask_matrix = np.array(mask)
@@ -232,7 +234,8 @@ class RuntimeRnnRunner(BaseRunner):
     """Prepare running the RNN decoder step by step."""
 
     def __init__(self,
-                 output_series: str, decoder: Decoder,
+                 output_series: str,
+                 decoder: Decoder,
                  beam_size: int=1,
                  beam_scoring_f=likelihood_beam_score,
                  postprocess: Callable[[List[str]], List[str]]=None,
@@ -247,7 +250,8 @@ class RuntimeRnnRunner(BaseRunner):
         self._postprocess = postprocess
         self._cpu_threads = cpu_threads
 
-    def get_executable(self, compute_losses=False, summaries=True):
+    def get_executable(self, compute_losses: bool=False,
+                       summaries: bool=True) -> Executable:
 
         return RuntimeRnnExecutable(self.all_coders, self._decoder,
                                     self._initial_fetches,
@@ -268,10 +272,16 @@ class RuntimeRnnExecutable(Executable):
     """Run and ensemble the RNN decoder step by step."""
 
     # pylint: disable=too-many-arguments
-    def __init__(self, all_coders, decoder: Decoder,
-                 initial_fetches, vocabulary,
-                 beam_scoring_f, postprocess, beam_size=1,
-                 compute_loss=True, cpu_threads=32):
+    def __init__(self,
+                 all_coders: List[ModelPart],
+                 decoder: Decoder,
+                 initial_fetches: List[tf.Tensor],
+                 vocabulary: Vocabulary,
+                 beam_scoring_f: ScoringFunction,
+                 postprocess,
+                 beam_size: int=1,
+                 compute_loss: bool=True,
+                 cpu_threads: int=32) -> None:
         self._all_coders = all_coders
         self._decoder = decoder
         self._vocabulary = vocabulary
@@ -282,12 +292,12 @@ class RuntimeRnnExecutable(Executable):
         self._postprocess = postprocess
         self._cpu_threads = cpu_threads
 
-        self._to_expand = [None]  # type: List[Option[BeamBatch]]
-        self._current_beam_batch = None
+        self._to_expand = [None]  # type: List[Optional[BeamBatch]]
+        self._current_beam_batch = None  # type: Optional[BeamBatch]
         self._expanded = []  # type: List[ExpandedBeamBatch]
         self._time_step = 0
 
-        self.result = None  # type: Option[ExecutionResult]
+        self.result = None  # type: Optional[ExecutionResult]
 
     def next_to_execute(self) -> NextExecute:
         """Get the feedables and tensors to run.
