@@ -10,14 +10,14 @@ separately which allows ensembling from all sessions and do the beam pruning
 before the a next output is emmited.
 """
 
-from functools import partial
-from typing import Dict, List, Callable, NamedTuple, Tuple
+from typing import Dict, List, Callable, NamedTuple, Tuple, Optional
 import multiprocessing
 
 import numpy as np
 import tensorflow as tf
 
-from neuralmonkey.logging import debug
+from neuralmonkey.logging import log
+from neuralmonkey.decoders.decoder import Decoder
 from neuralmonkey.runners.base_runner import (BaseRunner, Executable,
                                               ExecutionResult, NextExecute)
 from neuralmonkey.vocabulary import END_TOKEN_INDEX
@@ -48,26 +48,34 @@ def _n_best_indices(scores: np.ndarray, beam_size: int) -> np.ndarray:
 
 
 def _score_one_seq_expansion(
-        seq_id: int,
+        next_distributions: List[np.ndarray],
+        hypotheses: List[Optional[np.ndarray]],
+        prev_distributions: List[Optional[np.ndarray]],
         beam_size: int,
-        expanded: List[ExpandedBeamBatch],
         scoring_function: ScoringFunction) -> Tuple[np.ndarray, np.ndarray]:
+    """Score and get n-best from a single sequence.
+
+    Takes `beam_size` hypotheses for a sequence and expands them witch the `4
+    * batch_size` most promissing candidates and scores them using a scoring
+    function (typically length-normalized log-likelihood). From these `4 *
+    batch_size * batch_size` candidates, only `batch_size` of them si kept to
+    the next decoding step.
+    """
     candidate_scores = None
     candidate_hypotheses = None
     candidate_logprobs = None
 
-    for expanded_batch in expanded:
-        next_distribution = expanded_batch.next_logprobs[seq_id]
-        if expanded_batch.beam_batch is None:
-            expanded_hypotheses = np.expand_dims(np.arange(
-                len(next_distribution)), axis=1)
-            expanded_logprobs = np.expand_dims(next_distribution, 1)
+    for next_distribution, hypothesis, prev_logprobs in zip(
+            next_distributions, hypotheses, prev_distributions):
+        if hypothesis is None:
+            first_step_best = np.argpartition(
+                -next_distribution, beam_size)[:beam_size]
+            expanded_hypotheses = np.expand_dims(first_step_best, axis=1)
+            expanded_logprobs = np.expand_dims(
+                next_distribution[first_step_best], 1)
         else:
-            hypothesis = expanded_batch.beam_batch.decoded[seq_id]
-            prev_logprobs = expanded_batch.beam_batch.logprobs[seq_id]
-
             promissing_candidates = np.argpartition(
-                -next_distribution, 2 * beam_size)[:2 * beam_size]
+                -next_distribution, 4 * beam_size)[:4 * beam_size]
 
             expanded_hypotheses = np.array(
                 [np.append(hypothesis, index)
@@ -107,9 +115,12 @@ def _score_expanded(beam_size: int,
     """Score expanded beams.
 
     After all hypotheses have their possible continuations, we need to score
-    the expanded hypotheses. We collect all possible conitnuations (typically
-    `n`-times size of the voabulary), score them using `scoring_function` and
-    keep only `n` with the highest scores.
+    the expanded hypotheses. We collect possible (promissing) conitnuations,
+    score them using `scoring_function` and keep only `beam_size` with the
+    highest scores.
+
+    This is done asynchronously in `cpu_threads` threads for each output
+    sequence.
 
     Args:
         beam_size: Number of best hypotheses.
@@ -120,23 +131,34 @@ def _score_expanded(beam_size: int,
             on the hypotheses and individual words' log-probs.
 
     Returns:
-        Hypotheses indices and logprobs for the next decoding step.
+        Tuple of hypotheses indices and logprobs for the next decoding step.
     """
 
+    # agregate the expanded hypotheses hypothesis-wise
+    async_results = []
     next_beam_hypotheses = []
     next_beam_logprobs = []
-    # agregate the expanded hypotheses hypothesis-wise
     with multiprocessing.Pool(cpu_threads) as pool:
-        score_with_args = partial(
-            _score_one_seq_expansion,
-            beam_size=beam_size,
-            expanded=expanded,
-            scoring_function=scoring_function)
-        hyps_and_logprobs = pool.map(score_with_args, range(batch_size))
+        for seq_id in range(batch_size):
+            next_distributions = [b.next_logprobs[seq_id] for b in expanded]
+            hypotheses = [
+                None if b.beam_batch is None else b.beam_batch.decoded[seq_id]
+                for b in expanded]
+            prev_logprobs = [
+                None if b.beam_batch is None else b.beam_batch.decoded[seq_id]
+                for b in expanded]
+            async_res = pool.apply_async(
+                _score_one_seq_expansion,
+                args=(next_distributions, hypotheses, prev_logprobs,
+                      beam_size, scoring_function))
+            async_results.append(async_res)
 
-    (next_beam_hypotheses,
-     next_beam_logprobs) = map(list, zip(*hyps_and_logprobs))
-    return next_beam_hypotheses, next_beam_logprobs
+        log("Asynchronous jobs submitted")
+        for res in async_results:
+            hyp, logprobs = res.get()
+            next_beam_hypotheses.append(hyp)
+            next_beam_logprobs.append(logprobs)
+        return next_beam_hypotheses, next_beam_logprobs
 
 
 def _try_append(first, second):
@@ -192,7 +214,7 @@ def n_best(beam_size: int,
     batch_size = expanded[0].next_logprobs.shape[0]
     next_beam_hypotheses, next_beam_logprobs = _score_expanded(
         beam_size, batch_size, expanded, scoring_function, cpu_threads)
-    debug("Scoring expanded hypotheses done.")
+    log("Scoring expanded hypotheses done.")
 
     # now cut the beams by hypotheses rank
     beam_batches = []
@@ -210,7 +232,7 @@ class RuntimeRnnRunner(BaseRunner):
     """Prepare running the RNN decoder step by step."""
 
     def __init__(self,
-                 output_series: str, decoder,
+                 output_series: str, decoder: Decoder,
                  beam_size: int=1,
                  beam_scoring_f=likelihood_beam_score,
                  postprocess: Callable[[List[str]], List[str]]=None,
@@ -246,7 +268,8 @@ class RuntimeRnnExecutable(Executable):
     """Run and ensemble the RNN decoder step by step."""
 
     # pylint: disable=too-many-arguments
-    def __init__(self, all_coders, decoder, initial_fetches, vocabulary,
+    def __init__(self, all_coders, decoder: Decoder,
+                 initial_fetches, vocabulary,
                  beam_scoring_f, postprocess, beam_size=1,
                  compute_loss=True, cpu_threads=32):
         self._all_coders = all_coders
@@ -319,11 +342,11 @@ class RuntimeRnnExecutable(Executable):
 
         if not self._to_expand:
             self._time_step += 1
-            debug("TensorFlow done, aggreagteing results")
+            log("TensorFlow done, aggreagteing results")
             self._to_expand = n_best(
                 self._beam_size, self._expanded,
                 self._beam_scoring_f, self._cpu_threads)
-            debug("escoring done")
+            log("escoring done")
             self._expanded = []
 
         if self._time_step == self._decoder.max_output_len:
