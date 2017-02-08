@@ -1,6 +1,4 @@
-"""==================
-TensorFlow Manager
-==================
+"""TensorFlow Manager
 
 TensorFlow manager is a helper object in Neural Monkey which manages TensorFlow
 sessions, execution of the computation graph, and saving and restoring of model
@@ -8,17 +6,20 @@ variables.
 
 """
 
-# pylint: disable=unused-import
-from typing import Any, List, Union
-# pylint: enable=unused-import
-
+from typing import Any, Dict, List, Set, Tuple, Union
 import tensorflow as tf
 from typeguard import check_argument_types
 
 from neuralmonkey.logging import log
 from neuralmonkey.dataset import Dataset
-from neuralmonkey.runners.base_runner import (ExecutionResult,
+from neuralmonkey.model.model_part import ModelPart
+from neuralmonkey.runners.base_runner import (ExecutionResult, Executable,
+                                              FeedDict, BaseRunner,
                                               reduce_execution_results)
+
+# pylint: disable=invalid-name
+Fetches = Dict[Executable, Any]
+# pylint: enable=invalid-name
 
 
 class TensorFlowManager(object):
@@ -54,7 +55,6 @@ class TensorFlowManager(object):
         session_cfg.inter_op_parallelism_threads = num_threads
         session_cfg.intra_op_parallelism_threads = num_threads
         session_cfg.allow_soft_placement = True  # needed for multiple GPUs
-        # pylint: disable=no-member
         session_cfg.gpu_options.allow_growth = gpu_allow_growth
         session_cfg.gpu_options.per_process_gpu_memory_fraction = \
             per_process_gpu_memory_fraction
@@ -94,31 +94,13 @@ class TensorFlowManager(object):
                                             summaries=summaries)
                            for s in execution_scripts]
             while not all(ex.result is not None for ex in executables):
-                all_feedables = set()   # type: Set[Any]
-                # type: Dict[Executable, tf.Tensor]
-                all_tensors_to_execute = {}
-                additional_feed_dicts = []
-                tensor_list_lengths = []  # type: List[int]
+                (all_tensors_to_execute,
+                 additional_feed_dicts,
+                 feedables) = self._prepare_executables(executables)
+                feed_dict = _feed_dicts(batch, feedables, train=train)
 
-                for executable in executables:
-                    if executable.result is None:
-                        (feedables,
-                         tensors_to_execute,
-                         add_feed_dict) = executable.next_to_execute()
-                        all_feedables = all_feedables.union(feedables)
-                        all_tensors_to_execute[executable] = tensors_to_execute
-                        additional_feed_dicts.append(add_feed_dict)
-                        tensor_list_lengths.append(len(tensors_to_execute))
-                    else:
-                        tensor_list_lengths.append(0)
-
-                feed_dict = _feed_dicts(batch, all_feedables, train=train)
-                for fdict in additional_feed_dicts:
-                    feed_dict.update(fdict)
-
-                session_results = [sess.run(all_tensors_to_execute,
-                                            feed_dict=feed_dict)
-                                   for sess in self.sessions]
+                session_results = self._run_sessions(
+                    all_tensors_to_execute, feed_dict, additional_feed_dicts)
 
                 for executable in executables:
                     if executable.result is None:
@@ -133,6 +115,48 @@ class TensorFlowManager(object):
             collected_results.append(reduce_execution_results(result_list))
 
         return collected_results
+    # pylint: enable=too-many-locals
+
+    def _prepare_executables(
+            self, executables: List[Executable]) -> Tuple[Fetches,
+                                                          List[FeedDict],
+                                                          Set[ModelPart]]:
+        """Colect fetches and feedables from executables."""
+        all_feedables = set()  # type: Set[Any]
+        all_tensors_to_execute = {}  # type: Fetches
+        additional_feed_dicts = [{} for _ in range(len(self.sessions))]
+        # type: List[FeedDict]
+
+        for executable in executables:
+            (feedables, tensors_to_execute,
+             add_feed_dict) = executable.next_to_execute()
+            all_feedables = all_feedables.union(feedables)
+            all_tensors_to_execute[executable] = tensors_to_execute
+
+            if isinstance(add_feed_dict, list):
+                for add_dict, sess_dict in zip(
+                        add_feed_dict, additional_feed_dicts):
+                    sess_dict.update(add_dict)
+            else:
+                for sess_dict in additional_feed_dicts:
+                    sess_dict.update(add_feed_dict)
+
+        return all_tensors_to_execute, additional_feed_dicts, all_feedables
+
+    def _run_sessions(
+            self, all_tensors_to_execute: Fetches,
+            feed_dict: FeedDict,
+            additional_feed_dicts: List[FeedDict]) -> List[Dict[Executable,
+                                                                Any]]:
+        """Run sessions after everything was collected from executables."""
+        session_results = []
+        for sess, sess_feed_dict in zip(
+                self.sessions, additional_feed_dicts):
+            sess_feed_dict.update(feed_dict)
+            sess_res = sess.run(
+                all_tensors_to_execute, feed_dict=sess_feed_dict)
+            session_results.append(sess_res)
+        return session_results
 
     def save(self, variable_files: Union[str, List[str]]) -> None:
         if isinstance(variable_files, str) and len(self.sessions) == 1:
@@ -163,7 +187,7 @@ class TensorFlowManager(object):
             log("Loading variables from {}".format(file_name))
             self.saver.restore(sess, file_name)
 
-    def initialize_model_parts(self, runners) -> None:
+    def initialize_model_parts(self, runners: List[BaseRunner]) -> None:
         """Initialize model parts variables from their checkpoints."""
 
         all_coders = set.union(*[rnr.all_coders for rnr in runners])
@@ -172,7 +196,8 @@ class TensorFlowManager(object):
                 coder.load(session)
 
 
-def _feed_dicts(dataset, coders, train=False):
+def _feed_dicts(dataset: Dataset, coders: Set[ModelPart],
+                train: bool=False) -> FeedDict:
     """
     This function ensures all encoder and decoder objects feed their the data
     they need from the dataset.
