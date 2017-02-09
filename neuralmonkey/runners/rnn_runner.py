@@ -16,7 +16,7 @@ import multiprocessing
 import numpy as np
 import tensorflow as tf
 
-from neuralmonkey.logging import log
+from neuralmonkey.logging import debug
 from neuralmonkey.model.model_part import ModelPart
 from neuralmonkey.decoders.decoder import Decoder
 from neuralmonkey.runners.base_runner import (BaseRunner, Executable,
@@ -154,12 +154,12 @@ def _score_expanded(beam_size: int,
                       beam_size, scoring_function))
             async_results.append(async_res)
 
-        log("Asynchronous jobs submitted")
+        debug("Asynchronous jobs submitted")
         for res in async_results:
             hyp, logprobs = res.get()
             next_beam_hypotheses.append(hyp)
             next_beam_logprobs.append(logprobs)
-        return next_beam_hypotheses, next_beam_logprobs
+    return next_beam_hypotheses, next_beam_logprobs
 
 
 def _try_append(first: Optional[np.ndarray],
@@ -216,7 +216,7 @@ def n_best(beam_size: int,
     batch_size = expanded[0].next_logprobs.shape[0]
     next_beam_hypotheses, next_beam_logprobs = _score_expanded(
         beam_size, batch_size, expanded, scoring_function, cpu_threads)
-    log("Scoring expanded hypotheses done.")
+    debug("Scoring expanded hypotheses done.")
 
     # now cut the beams by hypotheses rank
     beam_batches = []
@@ -292,6 +292,7 @@ class RuntimeRnnExecutable(Executable):
         self._postprocess = postprocess
         self._cpu_threads = cpu_threads
 
+        self._decoder_input_tensors = None  # type: Optional[List[FeedDict]]
         self._to_expand = [None]  # type: List[Optional[BeamBatch]]
         self._current_beam_batch = None  # type: Optional[BeamBatch]
         self._expanded = []  # type: List[ExpandedBeamBatch]
@@ -314,14 +315,21 @@ class RuntimeRnnExecutable(Executable):
 
         self._current_beam_batch = self._to_expand.pop()
 
+        # pylint: disable=not-an-iterable,redefined-variable-type
         if self._current_beam_batch is not None:
             batch_size, output_len = self._current_beam_batch.decoded.shape
             fed_value = np.zeros([self._decoder.max_output_len, batch_size])
             fed_value[:output_len, :] = self._current_beam_batch.decoded.T
 
-            additional_feed_dict = {self._decoder.train_inputs: fed_value}
+            additional_feed_dicts = []
+            for input_fd in self._decoder_input_tensors:
+                fd = {self._decoder.train_inputs: fed_value}
+                fd.update(input_fd)
+                additional_feed_dicts.append(fd)
         else:
-            additional_feed_dict = {}
+            to_run['input_tensors'] = self._decoder.input_tensors
+            additional_feed_dicts = {}
+        # pylint: enable=not-an-iterable,redefined-variable-type
 
         # at the end, we should compute loss
         if self._time_step == self._decoder.max_output_len - 1:
@@ -330,7 +338,7 @@ class RuntimeRnnExecutable(Executable):
             else:
                 to_run["xent"] = tf.zeros([])
 
-        return self._all_coders, to_run, additional_feed_dict
+        return self._all_coders, to_run, additional_feed_dicts
 
     def collect_results(self, results: List[Dict]) -> None:
         """Process what the TF session returned.
@@ -341,6 +349,15 @@ class RuntimeRnnExecutable(Executable):
         """
 
         summed_logprobs = -np.inf
+
+        if self._time_step == 0:
+            self._decoder_input_tensors = []
+            for sess_result in results:
+                start_dict = {
+                    t: v for t, v in zip(self._decoder.input_tensors,
+                                         sess_result['input_tensors'])}
+                self._decoder_input_tensors.append(start_dict)
+
         for sess_result in results:
             summed_logprobs = np.logaddexp(summed_logprobs,
                                            sess_result["logprobs"])
@@ -352,11 +369,11 @@ class RuntimeRnnExecutable(Executable):
 
         if not self._to_expand:
             self._time_step += 1
-            log("TensorFlow done, aggreagteing results")
+            debug("TensorFlow done, aggregateing results")
             self._to_expand = n_best(
                 self._beam_size, self._expanded,
                 self._beam_scoring_f, self._cpu_threads)
-            log("escoring done")
+            debug("Rescoring done")
             self._expanded = []
 
         if self._time_step == self._decoder.max_output_len:

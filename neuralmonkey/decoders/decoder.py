@@ -239,6 +239,13 @@ class Decoder(ModelPart):
 
             log("Decoder initalized.")
 
+    @property
+    def input_tensors(self) -> List[tf.Tensor]:
+        """Get list of tensor decoder needs to start decoding."""
+        return [self.initial_state] + [
+            a.attention_states for a in
+            self._train_attention_objects.values()]
+
     def _create_input_placeholders(self) -> None:
         """Creates input placeholder nodes in the computation graph"""
         self.train_mode = tf.placeholder(tf.bool, name="decoder_train_mode")
