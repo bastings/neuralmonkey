@@ -162,12 +162,13 @@ class Decoder(ModelPart):
                         for e in self.encoders
                         if isinstance(e, Attentive)}
 
-            train_rnn_outputs, _ = self._attention_decoder(
-                embedded_go_symbols,
-                attention_on_input=attention_on_input,
-                conditional_gru=conditional_gru,
-                train_inputs=embedded_train_inputs,
-                train_mode=True)
+            (train_rnn_outputs,
+             self.train_rnn_states) = self._attention_decoder(
+                 embedded_go_symbols,
+                 attention_on_input=attention_on_input,
+                 conditional_gru=conditional_gru,
+                 train_inputs=embedded_train_inputs,
+                 train_mode=True)
 
             assert not tf.get_variable_scope().reuse
             tf.get_variable_scope().reuse_variables()

@@ -293,6 +293,7 @@ class RuntimeRnnExecutable(Executable):
         self._cpu_threads = cpu_threads
 
         self._decoder_input_tensors = None  # type: Optional[List[FeedDict]]
+        self._prev_hidden_states = None  # type: Optional[tf.Tensor]
         self._to_expand = [None]  # type: List[Optional[BeamBatch]]
         self._current_beam_batch = None  # type: Optional[BeamBatch]
         self._expanded = []  # type: List[ExpandedBeamBatch]
@@ -311,7 +312,9 @@ class RuntimeRnnExecutable(Executable):
             raise Exception(
                 "Nothing to execute, if there is already a result.")
 
-        to_run = {'logprobs': self._decoder.train_logprobs[self._time_step]}
+        to_run = {
+            'logprobs': self._decoder.train_logprobs[self._time_step],
+            'hidden_state': self._decoder.train_rnn_states[self._time_step]}
 
         self._current_beam_batch = self._to_expand.pop()
 
@@ -322,8 +325,11 @@ class RuntimeRnnExecutable(Executable):
             fed_value[:output_len, :] = self._current_beam_batch.decoded.T
 
             additional_feed_dicts = []
-            for input_fd in self._decoder_input_tensors:
+            for input_fd, prev_state in zip(self._decoder_input_tensors,
+                                            self._prev_hidden_states):
                 fd = {self._decoder.train_inputs: fed_value}
+                fd[self._decoder.train_rnn_states[
+                    self._time_step - 1]] = prev_state
                 fd.update(input_fd)
                 additional_feed_dicts.append(fd)
         else:
@@ -357,6 +363,7 @@ class RuntimeRnnExecutable(Executable):
                     t: v for t, v in zip(self._decoder.input_tensors,
                                          sess_result['input_tensors'])}
                 self._decoder_input_tensors.append(start_dict)
+        self._prev_hidden_states = [res['hidden_state'] for res in results]
 
         for sess_result in results:
             summed_logprobs = np.logaddexp(summed_logprobs,
@@ -369,7 +376,7 @@ class RuntimeRnnExecutable(Executable):
 
         if not self._to_expand:
             self._time_step += 1
-            debug("TensorFlow done, aggregateing results")
+            debug("TensorFlow done, aggregating results")
             self._to_expand = n_best(
                 self._beam_size, self._expanded,
                 self._beam_scoring_f, self._cpu_threads)
