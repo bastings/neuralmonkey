@@ -5,7 +5,9 @@ import tensorflow as tf
 
 # pylint: disable=invalid-name
 FeedDict = Dict[tf.Tensor, Union[int, float, np.ndarray]]
-NextExecute = Tuple[List[Any], Union[Dict, List], FeedDict]
+NextExecute = Tuple[List[Any],
+                    Union[Dict, List],
+                    Union[FeedDict, List[FeedDict]]]
 ExecutionResult = NamedTuple('ExecutionResult',
                              [('outputs', List[Any]),
                               ('losses', List[float]),

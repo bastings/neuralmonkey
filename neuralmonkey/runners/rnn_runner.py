@@ -19,8 +19,12 @@ import tensorflow as tf
 from neuralmonkey.logging import debug
 from neuralmonkey.model.model_part import ModelPart
 from neuralmonkey.decoders.decoder import Decoder
+# pylint: disable=unused-import
+# used for type annotations
 from neuralmonkey.runners.base_runner import (BaseRunner, Executable,
+                                              FeedDict,
                                               ExecutionResult, NextExecute)
+# pylint: enable=unused-import
 from neuralmonkey.vocabulary import Vocabulary, END_TOKEN_INDEX
 
 
@@ -239,7 +243,7 @@ class RuntimeRnnRunner(BaseRunner):
                  beam_size: int=1,
                  beam_scoring_f=likelihood_beam_score,
                  postprocess: Callable[[List[str]], List[str]]=None,
-                 cpu_threads: int=32) -> None:
+                 cpu_threads: int=1) -> None:
         super(RuntimeRnnRunner, self).__init__(output_series, decoder)
 
         self._initial_fetches = [decoder.runtime_rnn_states[0]]
@@ -334,7 +338,7 @@ class RuntimeRnnExecutable(Executable):
                 additional_feed_dicts.append(fd)
         else:
             to_run['input_tensors'] = self._decoder.input_tensors
-            additional_feed_dicts = {}
+            additional_feed_dicts = {}  # type: ignore
         # pylint: enable=not-an-iterable,redefined-variable-type
 
         # at the end, we should compute loss
