@@ -42,13 +42,14 @@ ScoringFunction = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 
 def _n_best_indices(scores: np.ndarray, beam_size: int) -> np.ndarray:
+    """Indices of the n-best list based on provided scores."""
     if scores.shape[0] <= beam_size:
         unsorted_n_best_indices = np.arange(scores.shape[0])
     else:
         unsorted_n_best_indices = np.argpartition(
             -scores, beam_size)[:beam_size]
     n_best_indices = unsorted_n_best_indices[
-        np.argsort(scores[unsorted_n_best_indices])]
+        np.argsort(-scores[unsorted_n_best_indices])]
     return n_best_indices
 
 
@@ -175,8 +176,7 @@ def _try_append(first: Optional[np.ndarray],
 
 
 def likelihood_beam_score(decoded: np.ndarray, logprobs: np.ndarray) -> float:
-    """Score the beam by normalized probaility."""
-
+    """Score the beam by normalized probability."""
     mask = []
     for hypothesis in decoded:
         before_end = True  # type: bool
@@ -189,8 +189,7 @@ def likelihood_beam_score(decoded: np.ndarray, logprobs: np.ndarray) -> float:
     mask_matrix = np.array(mask)
     masked_logprobs = mask_matrix * logprobs
     # pylint: disable=no-member
-    avg_logprobs = masked_logprobs.sum(
-        axis=1) - np.log(mask_matrix.sum(axis=1))
+    avg_logprobs = masked_logprobs.sum(axis=1) / mask_matrix.sum(axis=1)
     # pylint: enable=no-member
     return avg_logprobs
 
