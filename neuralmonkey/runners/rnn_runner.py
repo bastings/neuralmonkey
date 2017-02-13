@@ -38,8 +38,6 @@ ExpandedBeamBatch = NamedTuple('ExpandedBeamBatch',
 ScoringFunction = Callable[[np.ndarray, np.ndarray], np.ndarray]
 # pylint: enable=invalid-name
 
-# pylint: disable=too-many-locals
-
 
 def _n_best_indices(scores: np.ndarray, beam_size: int) -> np.ndarray:
     """Indices of the n-best list based on provided scores."""
@@ -53,6 +51,7 @@ def _n_best_indices(scores: np.ndarray, beam_size: int) -> np.ndarray:
     return n_best_indices
 
 
+# pylint: disable=too-many-locals
 def _score_one_seq_expansion(
         next_distributions: List[np.ndarray],
         hypotheses: List[Optional[np.ndarray]],
@@ -102,6 +101,8 @@ def _score_one_seq_expansion(
             candidate_logprobs, expanded_logprobs[n_best_indices])
         assert len(candidate_hypotheses.shape) == 2
 
+    # now we have n-best from each previous hypotheses,
+    # take only n-best form those
     n_best_indices = _n_best_indices(candidate_scores, beam_size)
     n_best_hypotheses = candidate_hypotheses[n_best_indices]
     n_best_logprobs = candidate_logprobs[n_best_indices]
@@ -165,6 +166,7 @@ def _score_expanded(beam_size: int,
             next_beam_hypotheses.append(hyp)
             next_beam_logprobs.append(logprobs)
     return next_beam_hypotheses, next_beam_logprobs
+# pylint: enable=too-many-locals
 
 
 def _try_append(first: Optional[np.ndarray],
@@ -194,6 +196,34 @@ def likelihood_beam_score(decoded: np.ndarray, logprobs: np.ndarray) -> float:
     return avg_logprobs
 
 
+def _transpose_n_best_into_batches(
+        beam_hypotheses: np.ndarray,
+        beam_logprobs: np.ndarray,
+        beam_size: int) -> List[BeamBatch]:
+    """Transpose hypotheses from sentence-wise arrays to beam-wise batches.
+
+    Args:
+        beam_hypotheses: Array of shape [sentences, beam rank, words] with
+            token indices.
+        beam_logprobs: Array of the same shape, but with tokens' logprobs.
+        beam_size: Beam size.
+
+    Returns:
+        List of BeamBatches. I-th batch contains i-th hypothesis for each
+        sentence in the data.
+    """
+
+    beam_batches = []
+    for rank in range(beam_size):
+        hypotheses = np.array([beam[rank] for beam in beam_hypotheses])
+        logprobs = np.array([beam[rank] for beam in beam_logprobs])
+        assert len(hypotheses.shape) == 2
+        assert hypotheses.shape == logprobs.shape
+        beam_batches.append(BeamBatch(hypotheses, logprobs))
+
+    return beam_batches
+
+
 def n_best(beam_size: int,
            expanded: List[ExpandedBeamBatch],
            scoring_function: ScoringFunction,
@@ -213,22 +243,16 @@ def n_best(beam_size: int,
 
     Returns:
         List of BeamBatches ready for new expansion.
-
     """
 
+    # Expand and rescore
     batch_size = expanded[0].next_logprobs.shape[0]
     next_beam_hypotheses, next_beam_logprobs = _score_expanded(
         beam_size, batch_size, expanded, scoring_function, cpu_threads)
     debug("Scoring expanded hypotheses done.")
 
-    # now cut the beams by hypotheses rank
-    beam_batches = []
-    for rank in range(beam_size):
-        hypotheses = np.array([beam[rank] for beam in next_beam_hypotheses])
-        logprobs = np.array([beam[rank] for beam in next_beam_logprobs])
-        assert len(hypotheses.shape) == 2
-        assert hypotheses.shape == logprobs.shape
-        beam_batches.append(BeamBatch(hypotheses, logprobs))
+    beam_batches = _transpose_n_best_into_batches(
+        next_beam_hypotheses, next_beam_logprobs, beam_size)
 
     return beam_batches
 
@@ -316,8 +340,8 @@ class RuntimeRnnExecutable(Executable):
                 "Nothing to execute, if there is already a result.")
 
         to_run = {
-            'logprobs': self._decoder.train_logprobs[self._time_step],
-            'hidden_state': self._decoder.train_rnn_states[self._time_step]}
+            'logprobs': self._decoder.train_logprobs[self._time_step]}
+        # 'hidden_state': self._decoder.train_rnn_states[self._time_step]}
 
         self._current_beam_batch = self._to_expand.pop()
 
@@ -328,11 +352,12 @@ class RuntimeRnnExecutable(Executable):
             fed_value[:output_len, :] = self._current_beam_batch.decoded.T
 
             additional_feed_dicts = []
-            for input_fd, prev_state in zip(self._decoder_input_tensors,
-                                            self._prev_hidden_states):
+            # for input_fd, prev_state in zip(self._decoder_input_tensors,
+            #                                self._prev_hidden_states):
+            for input_fd in self._decoder_input_tensors:
                 fd = {self._decoder.train_inputs: fed_value}
-                fd[self._decoder.train_rnn_states[
-                    self._time_step - 1]] = prev_state
+                # fd[self._decoder.train_rnn_states[
+                #    self._time_step - 1]] = prev_state
                 fd.update(input_fd)
                 additional_feed_dicts.append(fd)
         else:
@@ -366,7 +391,7 @@ class RuntimeRnnExecutable(Executable):
                     t: v for t, v in zip(self._decoder.input_tensors,
                                          sess_result['input_tensors'])}
                 self._decoder_input_tensors.append(start_dict)
-        self._prev_hidden_states = [res['hidden_state'] for res in results]
+        # self._prev_hidden_states = [res['hidden_state'] for res in results]
 
         for sess_result in results:
             summed_logprobs = np.logaddexp(summed_logprobs,
