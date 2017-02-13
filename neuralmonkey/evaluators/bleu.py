@@ -223,3 +223,9 @@ class BLEUEvaluator(object):
         # type: (float, float) -> int
         # the bigger the better
         return (score1 > score2) - (score1 < score2)
+
+
+# pylint: disable=invalid-name
+BLEU1 = BLEUEvaluator(n=1)
+BLEU4 = BLEUEvaluator(n=4)
+BLEU = BLEUEvaluator()
