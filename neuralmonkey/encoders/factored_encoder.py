@@ -82,7 +82,7 @@ class FactoredEncoder(ModelPart, Attentive):
         if self.use_noisy_activations:
             cell = NoisyGRUCell(self.rnn_size, self.is_training)
         else:
-            cell = tf.nn.rnn_cell.GRUCell(self.rnn_size)
+            cell = tf.contrib.rnn.GRUCell(self.rnn_size)
         return cell
 
     def _get_birnn_cells(self):
