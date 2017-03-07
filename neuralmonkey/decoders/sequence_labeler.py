@@ -68,7 +68,7 @@ class SequenceLabeler(ModelPart):
                            name="seq_lab_padding_weights_{}".format(i))
             for i in range(self.max_output_len)]
 
-        losses = [tf.nn.softmax_cross_entropy_with_logits(l, t)
+        losses = [tf.nn.softmax_cross_entropy_with_logits(labels=t, logits=l)
                   for l, t in zip(logits, train_onehots)]
 
         weighted_losses = [l * w for l, w in zip(losses, self.train_weights)]
