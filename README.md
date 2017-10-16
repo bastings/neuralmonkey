@@ -3,6 +3,8 @@
 This repository is being updated. 
 Please check back shortly.
 
+Note: you will need TensorFlow **1.0.1** to run this release.
+
 
 ## Neural Sequence Learning Using TensorFlow
 
