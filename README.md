@@ -1,9 +1,15 @@
 # Neural Monkey with GCN (EMNLP code)
 
-This repository is being updated. 
-Please check back shortly.
+Please consult general Neural Monkey documentation first before trying out the GCN models.
+**Note:** you will need TensorFlow **1.0.1** to run this release.
 
-Note: you will need TensorFlow **1.0.1** to run this release.
+For testing the code on artificial data:
+
+* See tests/gcn-artificial-data-test.ini for the configuration file of the artificial experiment and how to configure using a GCN layer.
+
+For the EMNLP configurations:
+
+* Please check back shortly.
 
 
 ## Neural Sequence Learning Using TensorFlow
