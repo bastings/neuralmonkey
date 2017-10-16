@@ -1,4 +1,7 @@
-# &nbsp; ![Ape is not a monkey][gorila] Neural Monkey
+# Neural Monkey with GCN (EMNLP code)
+
+This repository is being updated. Please check back shortly.
+
 
 Neural Sequence Learning Using TensorFlow
 
