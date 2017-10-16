@@ -1,9 +1,10 @@
 # Neural Monkey with GCN (EMNLP code)
 
-This repository is being updated. Please check back shortly.
+This repository is being updated. 
+Please check back shortly.
 
 
-Neural Sequence Learning Using TensorFlow
+## Neural Sequence Learning Using TensorFlow
 
 [![Build Status](https://travis-ci.org/ufal/neuralmonkey.svg?branch=master)](https://travis-ci.org/ufal/neuralmonkey)
 [![Documentation Status](https://readthedocs.org/projects/neural-monkey/badge/?version=latest)](http://neural-monkey.readthedocs.io/en/latest/?badge=latest)
