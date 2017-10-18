@@ -33,6 +33,8 @@ class SentenceEncoder(ModelPart, Attentive):
                  embedding_size: int,
                  rnn_size: int,
                  max_input_len: Optional[int]=None,
+                 add_start_symbol: Optional[bool]=False,
+                 add_end_symbol: Optional[bool]=False,
                  dropout_keep_prob: float=1.0,
                  attention_type: Optional[Any]=None,
                  attention_fertility: int=3,
@@ -47,6 +49,8 @@ class SentenceEncoder(ModelPart, Attentive):
             data_id: Identifier of the data series fed to this encoder
             name: An unique identifier for this encoder
             max_input_len: Maximum length of an encoded sequence
+            add_start_symbol: Always add start symbol to encoder input
+            add_end_symbol: Add end symbol to encoder input (only if it fits)
             embedding_size: The size of the embedding vector assigned
                 to each word
             rnn_size: The size of the encoder's hidden state. Note
@@ -77,6 +81,9 @@ class SentenceEncoder(ModelPart, Attentive):
         self.dropout_keep_p = dropout_keep_prob
         self.use_noisy_activations = use_noisy_activations
         self.parent_encoder = parent_encoder
+
+        self.add_start_symbol = add_start_symbol
+        self.add_end_symbol = add_end_symbol
 
         if max_input_len is not None and max_input_len <= 0:
             raise ValueError("Input length must be positive.")
@@ -213,7 +220,8 @@ class SentenceEncoder(ModelPart, Attentive):
 
         vectors, paddings = self.vocabulary.sentences_to_tensor(
             list(sentences), self.max_input_len, pad_to_max_len=False,
-            train_mode=train)
+            train_mode=train, add_start_symbol=self.add_start_symbol,
+            add_end_symbol=self.add_end_symbol)
 
         # as sentences_to_tensor returns lists of shape (time, batch),
         # we need to transpose
