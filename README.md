@@ -7,9 +7,9 @@ For testing the code on artificial data:
 
 * See tests/gcn-artificial-data-test.ini for the configuration file of the artificial experiment and how to configure using a GCN layer.
 
-For the EMNLP configurations:
+For how to make an EMNLP configuration:
 
-* Please check back shortly.
+* See https://github.com/bastings/neuralmonkey/blob/emnlp_gcn/tests/birnn_gcn_2l_en2de.ini
 
 
 ## Neural Sequence Learning Using TensorFlow
