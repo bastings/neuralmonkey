@@ -6,7 +6,9 @@ Please consult general Neural Monkey documentation first before trying out the G
 ## Update: new release
 Since this release is relatively old and requires TF 1.0.1 we recommend you to take a look at this more recent implementation in PyTorch wich implements the Syntactic GCN as well: https://github.com/diegma/graph-2-text
 
-We no longer support the Neural Monkey code base.
+The GCN-specific code can be found in https://github.com/diegma/graph-2-text/blob/master/onmt/my_modules/GCN.py
+
+Please note that we no longer support the Neural Monkey code base.
 
 ## Data 
 You can find the News Commentary data with dependency syntax (EMNLP'17) and semantic role labels (NAACL'18) here: https://drive.google.com/open?id=0BxGk3yrG1HHVMy1aYTNld3BIN2s
