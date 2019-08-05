@@ -1,15 +1,20 @@
 # Neural Monkey with GCN (EMNLP code)
 
 Please consult general Neural Monkey documentation first before trying out the GCN models.
-**Note:** you will need TensorFlow **1.0.1** to run this release.
+**Note:** you will need TensorFlow **1.0.1** to run this release. 
 
 For testing the code on artificial data:
 
 * See tests/gcn-artificial-data-test.ini for the configuration file of the artificial experiment and how to configure using a GCN layer.
 
+You can find the News Commentary data with dependency syntax (EMNLP'17) and semantic role labels (NAACL'18) here: 
+* https://drive.google.com/open?id=0BxGk3yrG1HHVMy1aYTNld3BIN2s
+
 For how to make an EMNLP configuration:
 
 * See https://github.com/bastings/neuralmonkey/blob/emnlp_gcn/tests/birnn_gcn_2l_en2de.ini
+
+**Update**: since this release is relatively old and requires TF 1.0.1 we recommend you to take a look at this more recent implementation in PyTorch wich implements the Syntactic GCN as well: https://github.com/diegma/graph-2-text 
 
 
 ## Neural Sequence Learning Using TensorFlow
